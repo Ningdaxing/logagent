@@ -55,10 +55,15 @@ func GetConf(key string) (collectEntryList []common.CollectEntry, err error) {
 // WatchConf 监控etcd中日志收集配置变化的函数
 func WatchConf(key string) {
 	watchCh := client.Watch(context.Background(), key)
-	var newConf []common.CollectEntry
 	for resp := range watchCh {
 		for _, evt := range resp.Events {
 			fmt.Printf("type: %s, key: %s, values: %s\n", evt.Type, evt.Kv.Key, evt.Kv.Value)
+			var newConf []common.CollectEntry
+			if evt.Type == clientv3.EventTypeDelete {
+				logrus.Warning("warning: etcd will delete this key!!!")
+				tailfile.SendNewConf(newConf)
+				continue
+			}
 			err := json.Unmarshal(evt.Kv.Value, &newConf)
 			if err != nil {
 				logrus.Errorf("json unmarshl new conf faild, err:%v", err)

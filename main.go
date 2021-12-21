@@ -1,8 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/ini.v1"
+	"logagent/common"
 	"logagent/etcd"
 	"logagent/kafka"
 	"logagent/tailfile"
@@ -15,7 +17,6 @@ import (
 
 // kafka 写入和消费
 // tailf 读日志文件
-
 
 //ini 用法
 
@@ -31,15 +32,15 @@ import (
 // Config 整个logagent的配置
 
 type Config struct {
-	KafkaConfig `ini:"kafka"`
+	KafkaConfig   `ini:"kafka"`
 	CollectConfig `ini:"collect"`
-	EtcdConfig `ini:"etcd"`
+	EtcdConfig    `ini:"etcd"`
 }
 
 type KafkaConfig struct {
-	Address []string	`ini:"address"`
-	Topic string `ini:"topic"`
-	ChanSize int64	`ini:"chan_size"`
+	Address  []string `ini:"address"`
+	Topic    string   `ini:"topic"`
+	ChanSize int64    `ini:"chan_size"`
 }
 
 type CollectConfig struct {
@@ -47,8 +48,8 @@ type CollectConfig struct {
 }
 
 type EtcdConfig struct {
-	Address []string `ini:"address"`
-	CollectKey string `ini:"collect_key"`
+	Address    []string `ini:"address"`
+	CollectKey string   `ini:"collect_key"`
 }
 
 //// 真正的业务逻辑
@@ -75,23 +76,29 @@ type EtcdConfig struct {
 //	}
 //}
 
-
 func main() {
 	// 0、初始化(做好准备工作) `go-ini`
 	// 1、读配置文件  读取etcd配置
 	// 2、跟进文件中的配置传入tailf去收集日志 ==> fix: 从etcd中拉取日志配置项
 	// 3、将日志写入kafka (通过sarama)
+	////////////////////////
+
+	// -1 获取本机ip，插入ip去获取不同机器的监控项
+	ip, err := common.GetOutBoundIp()
+	if err != nil {
+		logrus.Errorf("get local ip faild, err:%v", err)
+		return
+	}
 	var configObj = new(Config)
+	err = ini.MapTo(configObj, "./conf/config.ini")
 
-	err := ini.MapTo(configObj, "./conf/config.ini")
-
-	if err != nil{
+	if err != nil {
 		logrus.Error("load config faild, err:%v", err)
 		return
 	}
 	logrus.Info(configObj)
 	err = kafka.Init(configObj.KafkaConfig.Address, configObj.KafkaConfig.ChanSize)
-	if err != nil{
+	if err != nil {
 		logrus.Error("kafka start faild, err:", err)
 		return
 	}
@@ -99,12 +106,13 @@ func main() {
 
 	// 初始化ectd，从ectd中拉取要收集的配置项
 	err = etcd.Init(configObj.EtcdConfig.Address)
-	if err != nil{
+	if err != nil {
 		logrus.Error("init etcd faild, err: %v\n", err)
 		return
 	}
-	allConf, err := etcd.GetConf(configObj.EtcdConfig.CollectKey)
-	if err != nil{
+	collectKey := fmt.Sprintf(configObj.EtcdConfig.CollectKey, ip) // 组合etcd key用主机ip去填补
+	allConf, err := etcd.GetConf(collectKey)
+	if err != nil {
 		logrus.Error("get ectd conf faild, err: %v\n", err)
 		return
 	}
@@ -119,4 +127,3 @@ func main() {
 
 	logrus.Info("tail init success")
 }
-
